@@ -1,0 +1,8 @@
+ {
+    "API_URL": "https://easyverein.com/api/stable/member",
+    "API_TOKEN": "DO-NOT-SHARE",
+    "LDAP_ID_CUSTOM_FIELD_ID": 54477828,
+    "LDAP_URL": "ldap://localhost:1389",
+    "LDAP_USER": "DO-NOT-SHARE",
+    "LDAP_PASS": "DO-NOT-SHARE"
+}
