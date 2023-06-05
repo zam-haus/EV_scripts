@@ -5,10 +5,10 @@
 #   match using email
 # * sync active eV membership with LDAP membership of "Mitglieder" group
 #   eV -> LDAP
-#   remove all accounts that are either not matched to eV
+#   remove all accounts from group that are either not matched to eV
 #   or with inactive eV membership status
-# * report unmatched LDAP accounts for manual linking
-# * update mailman betreiberverein-mitglieder
+# * (optionally)report unmatched LDAP accounts for manual linking
+# * update mailman betreiberverein-mitglieder list
 
 import sys
 from pprint import pprint
