@@ -17,6 +17,7 @@ from copy import deepcopy
 import subprocess
 from pathlib import Path
 import json
+from json import JSONDecodeError
 
 import requests
 import ldap
@@ -77,7 +78,13 @@ def EV_get_all_ppl(session):
 
         if res['next']:
             req = requests.get(res['next'], headers={'Authorization': 'Token '+config['API_TOKEN']})
-            res = req.json()
+            try:
+                res = req.json()
+            except JSONDecodeError as e:
+                print()
+                print("Failed decoding:", repr(res.text))
+                print(e)
+                raise e
             print('.', end='', flush=True)
         else:
             break
@@ -214,7 +221,7 @@ active_member_mails = [
     '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
     for m in EV_members if m['__ACTIVE_MEMBER__']]
 p = subprocess.run(
-    'sync_members -f - betreiberverein-mitglieder'.split(),
+    '/usr/sbin/sync_members -f - betreiberverein-mitglieder'.split(),
     input='\n'.join(active_member_mails).encode())
 p.check_returncode()
 
