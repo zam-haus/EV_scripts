@@ -43,7 +43,8 @@ def EV_get_all_ppl(session):
     # get all ppl (members and non-members) with
     #     name, mail, LDAP_ID, membership status (yes/no)
     req = session.get(config['API_URL'] +
-                '?query={id,contactDetails{name,id},emailOrUserName,'
+                '?query={id,emailOrUserName,'
+                'contactDetails{name,id,privateEmail},'
                 'customFields{id,customField{id,name},'
                 'value},resignationDate,joinDate}')
     res = req.json()
@@ -74,6 +75,8 @@ def EV_get_all_ppl(session):
                     pass
             
             m['__ACTIVE_MEMBER__'] = active
+            m['__customFields__'] = {
+                cf['customField']['name']: cf['value'] for cf in m['customFields'] or []}
 
         if res['next']:
             req = requests.get(res['next'], headers={'Authorization': 'Token '+config['API_TOKEN']})
@@ -148,8 +151,7 @@ print('easyVerein:', len(EV_members), 'total   ', len([m for m in EV_members if 
 
 active_members_with_ldap = []
 for m in EV_members:
-    customFields = {cf['customField']['id']: cf for cf in m['customFields'] or []}
-    LDAP_ID = customFields.get(config['LDAP_ID_CUSTOM_FIELD_ID'], {}).get('value', None)
+    LDAP_ID = m['__customFields__'].get('LDAP ID', None)
 
     print("{:<40}".format(m['emailOrUserName']), end=" - ")
 
@@ -215,10 +217,25 @@ active_member_mails = [
     for m in EV_members if m['__ACTIVE_MEMBER__']]
 p = subprocess.run(
     'sync_members -f - betreiberverein-mitglieder'.split(),
-    input='\n'.join(active_member_mails).encode())
+    input='\n'.join(active_member_mails).encode('utf-8'))
 p.check_returncode()
 
 # TODO enforce sane usernames? Probably better located at self-registration
 
 # TODO use LDAP mail-groups for mailman sync
 # TODO add to keycloak self-service
+
+# subscribe members (since 27.11.2023) to newsletter@ and mitmachen@ mailman
+# TODO implement 2-way-sync for all members
+newsletter_subscriber = [
+    '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
+    for m in EV_members if m['__customFields__'].get('Newsletter') and m['__ACTIVE_MEMBER__']]
+p = subprocess.run(
+    'add_members --welcome-msg=n -r - betreiberverein-newsletter'.split(),
+    input='\n'.join(newsletter_subscriber).encode('utf-8'))
+mitmachen_subscriber = [
+    '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
+    for m in EV_members if m['__customFields__'].get('Mitmachen-Verteiler') and m['__ACTIVE_MEMBER__']]
+p = subprocess.run(
+    'add_members --welcome-msg=n -r - betreiberverein-mitmachen'.split(),
+    input='\n'.join(mitmachen_subscriber).encode('utf-8'))
