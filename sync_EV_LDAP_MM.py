@@ -17,6 +17,7 @@ from copy import deepcopy
 import subprocess
 from pathlib import Path
 import json
+from json import JSONDecodeError
 
 import requests
 import ldap
@@ -80,7 +81,13 @@ def EV_get_all_ppl(session):
 
         if res['next']:
             req = requests.get(res['next'], headers={'Authorization': 'Token '+config['API_TOKEN']})
-            res = req.json()
+            try:
+                res = req.json()
+            except JSONDecodeError as e:
+                print()
+                print("Failed decoding:", repr(res.text))
+                print(e)
+                raise e
             print('.', end='', flush=True)
         else:
             break
@@ -216,8 +223,8 @@ active_member_mails = [
     '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
     for m in EV_members if m['__ACTIVE_MEMBER__']]
 p = subprocess.run(
-    'sync_members -f - betreiberverein-mitglieder'.split(),
-    input='\n'.join(active_member_mails).encode('utf-8'))
+    '/usr/sbin/sync_members -f - betreiberverein-mitglieder'.split(),
+    input='\n'.join(active_member_mails).encode())
 p.check_returncode()
 
 # TODO enforce sane usernames? Probably better located at self-registration
@@ -231,11 +238,11 @@ newsletter_subscriber = [
     '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
     for m in EV_members if m['__customFields__'].get('Newsletter') and m['__ACTIVE_MEMBER__']]
 p = subprocess.run(
-    'add_members --welcome-msg=n -r - betreiberverein-newsletter'.split(),
-    input='\n'.join(newsletter_subscriber).encode('utf-8'))
+    '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-newsletter'.split(),
+    input='\n'.join(newsletter_subscriber).encode())
 mitmachen_subscriber = [
     '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
     for m in EV_members if m['__customFields__'].get('Mitmachen-Verteiler') and m['__ACTIVE_MEMBER__']]
 p = subprocess.run(
-    'add_members --welcome-msg=n -r - betreiberverein-mitmachen'.split(),
-    input='\n'.join(mitmachen_subscriber).encode('utf-8'))
+    '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-mitmachen'.split(),
+    input='\n'.join(mitmachen_subscriber).encode())
