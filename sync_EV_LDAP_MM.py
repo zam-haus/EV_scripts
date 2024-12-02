@@ -210,6 +210,17 @@ def main():
     ldap_members_group_new = deepcopy(ldap_members_group)
     ldap_members_group_new[0][1]['uniqueMember'] = [cn.encode() for cn in active_members_with_ldap]
 
+    if len(ldap_members_group_new[0][1]['uniqueMember']) != len(set(ldap_members_group_new[0][1]['uniqueMember'])):
+        print("There is an issue with the member list, at least one member seems to be listed twice:")
+        l = sorted(ldap_members_group_new[0][1]['uniqueMember'])
+        l_old = l[0]
+        for i in range(1, len(l)):
+            if l_old == l[i]:
+                print("*", l[i])
+            l_old = l[i]
+        # work around to ensure productivity:
+        ldap_members_group_new[0][1]['uniqueMember'] = set(ldap_members_group_new[0][1]['uniqueMember'])
+
     modlist = ldap.modlist.modifyModlist(ldap_members_group[0][1], ldap_members_group_new[0][1])
     LDAP_con.modify_s("cn=mitglied,ou=groups,dc=betreiberverein,dc=de",
             modlist)
