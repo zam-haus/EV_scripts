@@ -34,7 +34,7 @@ def EV_get_session():
     session.headers.update({'Authorization': 'Token '+config['API_TOKEN']})
     return session
 
-def EV_get_all_ppl(session):
+def EV_get_all_ppl(session, query=None):
     """
     Return list of all easyVerein users
 
@@ -43,11 +43,13 @@ def EV_get_all_ppl(session):
     """
     # get all ppl (members and non-members) with
     #     name, mail, LDAP_ID, membership status (yes/no)
-    req = session.get(config['API_URL'] +
-                '?query={id,emailOrUserName,'
-                'contactDetails{name,id,privateEmail},'
+    if query is None:
+        query = ('{id,emailOrUserName,'
+                'contactDetails{name,id,primaryEmail},'
                 'customFields{id,customField{id,name},'
                 'value},resignationDate,joinDate}')
+    req = session.get(config['API_URL'] +
+                '?query=' + query)
     res = req.json()
 
     members = []
@@ -142,107 +144,111 @@ def LDAP_get_ppl(ldap_con, print_weirdos=True):
     
     return ldap_ppl
 
-# Get data from LDAP
-LDAP_con = LDAP_initialize()
-LDAP_ppl = LDAP_get_ppl(LDAP_con)
-LDAP_ppl_by_mail = {p[1]['mail'][0].decode().lower(): p for p in LDAP_ppl if 'mail' in p[1]}
-LDAP_ppl_by_uuid = {p[1]['entryUUID'][0].decode(): p for p in LDAP_ppl}
+def main():
+    # Get data from LDAP
+    LDAP_con = LDAP_initialize()
+    LDAP_ppl = LDAP_get_ppl(LDAP_con)
+    LDAP_ppl_by_mail = {p[1]['mail'][0].decode().lower(): p for p in LDAP_ppl if 'mail' in p[1]}
+    LDAP_ppl_by_uuid = {p[1]['entryUUID'][0].decode(): p for p in LDAP_ppl}
 
-print ('LDAP:', len(LDAP_ppl), 'total')
+    print ('LDAP:', len(LDAP_ppl), 'total')
 
-# Get data from easyVerein
-EV_session = EV_get_session()
-EV_members = EV_get_all_ppl(EV_session)
+    # Get data from easyVerein
+    EV_session = EV_get_session()
+    EV_members = EV_get_all_ppl(EV_session)
 
-print('easyVerein:', len(EV_members), 'total   ', len([m for m in EV_members if m['__ACTIVE_MEMBER__']]), 'active')
+    print('easyVerein:', len(EV_members), 'total   ', len([m for m in EV_members if m['__ACTIVE_MEMBER__']]), 'active')
 
-active_members_with_ldap = []
-for m in EV_members:
-    LDAP_ID = m['__customFields__'].get('LDAP ID', None)
+    active_members_with_ldap = []
+    for m in EV_members:
+        LDAP_ID = m['__customFields__'].get('LDAP ID', None)
 
-    print("{:<40}".format(m['emailOrUserName']), end=" - ")
+        print("{:<40}".format(m['contactDetails']['primaryEmail']), end=" - ")
 
-    # If user has an LDAP ID set:
-    if LDAP_ID:
-        # Validate that user is found in LDAP_ppl, if not delete LDAP_ID from eV
-        if LDAP_ID not in LDAP_ppl_by_uuid:
-            # remove LDAP_ID entry from user `m` in easyVerein
-            EV_delete_custom_field(EV_session, m['id'], config['LDAP_ID_CUSTOM_FIELD_ID'])
-            # Unset LDAP_ID to try and match by mail again
-            print("no-more-ldap", end=" ")
-            LDAP_ID = None
-        else:
-            # Everything is up-to-date
-            print("    has-ldap", end=" ")
-            pass
-
-    if not LDAP_ID:  # User has no LDAP ID set
-        # search for email in LDAP
-        if m['emailOrUserName'].lower() in LDAP_ppl_by_mail:
-            # set LDAP_ID in eV profile
-            LDAP_ID = LDAP_ppl_by_mail[m['emailOrUserName'].lower()][1]['entryUUID'][0].decode()
-            EV_create_custom_field(EV_session, m['id'], config['LDAP_ID_CUSTOM_FIELD_ID'], LDAP_ID)
-            print("matched-mail", end=" ")
-        else:
-            # no matching LDAP account found, ignoring this eV account
-            print("     no-ldap", end=" ")
-            pass
-    m['LDAP_ID'] = LDAP_ID
-    
-    if m['__ACTIVE_MEMBER__']:
+        # If user has an LDAP ID set:
         if LDAP_ID:
-            active_members_with_ldap.append(LDAP_ppl_by_uuid[LDAP_ID][0])
-        print("  active", end=" ")
-    else:
-        print("inactive", end=" ")
-    print()
+            # Validate that user is found in LDAP_ppl, if not delete LDAP_ID from eV
+            if LDAP_ID not in LDAP_ppl_by_uuid:
+                # remove LDAP_ID entry from user `m` in easyVerein
+                EV_delete_custom_field(EV_session, m['id'], config['LDAP_ID_CUSTOM_FIELD_ID'])
+                # Unset LDAP_ID to try and match by mail again
+                print("no-more-ldap", end=" ")
+                LDAP_ID = None
+            else:
+                # Everything is up-to-date
+                print("    has-ldap", end=" ")
+                pass
 
-# update "Mitglieder" group from active_members_with_ldap:
-# remove all non-members, add all new members
+        if not LDAP_ID:  # User has no LDAP ID set
+            # search for email in LDAP
+            if m['contactDetails']['primaryEmail'].lower() in LDAP_ppl_by_mail:
+                # set LDAP_ID in eV profile
+                LDAP_ID = LDAP_ppl_by_mail[m['contactDetails']['primaryEmail'].lower()][1]['entryUUID'][0].decode()
+                EV_create_custom_field(EV_session, m['id'], config['LDAP_ID_CUSTOM_FIELD_ID'], LDAP_ID)
+                print("matched-mail", end=" ")
+            else:
+                # no matching LDAP account found, ignoring this eV account
+                print("     no-ldap", end=" ")
+                pass
+        m['LDAP_ID'] = LDAP_ID
 
-ldap_members_group = LDAP_con.search_s(
-    "cn=mitglied,ou=groups,dc=betreiberverein,dc=de",
-    ldap.SCOPE_BASE,
-    "objectclass=groupOfUniqueNames")
-ldap_members_group_new = deepcopy(ldap_members_group)
-ldap_members_group_new[0][1]['uniqueMember'] = [cn.encode() for cn in active_members_with_ldap]
+        if m['__ACTIVE_MEMBER__']:
+            if LDAP_ID:
+                active_members_with_ldap.append(LDAP_ppl_by_uuid[LDAP_ID][0])
+            print("  active", end=" ")
+        else:
+            print("inactive", end=" ")
+        print()
 
-modlist = ldap.modlist.modifyModlist(ldap_members_group[0][1], ldap_members_group_new[0][1])
-LDAP_con.modify_s("cn=mitglied,ou=groups,dc=betreiberverein,dc=de",
-           modlist)
+    # update "Mitglieder" group from active_members_with_ldap:
+    # remove all non-members, add all new members
 
-# report unmatched
-# print("Unmatec LDAP Users:")
-# EV_members_by_ldap_id = {m['LDAP_ID'].lower(): m for m in EV_members if m['LDAP_ID']}
-# for p in LDAP_ppl:
-#     if p[1]['entryUUID'][0].decode() not in EV_members_by_ldap_id:
-#         print(p)
+    ldap_members_group = LDAP_con.search_s(
+        "cn=mitglied,ou=groups,dc=betreiberverein,dc=de",
+        ldap.SCOPE_BASE,
+        "objectclass=groupOfUniqueNames")
+    ldap_members_group_new = deepcopy(ldap_members_group)
+    ldap_members_group_new[0][1]['uniqueMember'] = [cn.encode() for cn in active_members_with_ldap]
 
-# update/sync betreiberverein-mitglieder@ from active_member_list
-active_member_mails = [
-    '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
-    for m in EV_members if m['__ACTIVE_MEMBER__']]
-p = subprocess.run(
-    '/usr/sbin/sync_members -f - betreiberverein-mitglieder'.split(),
-    input='\n'.join(active_member_mails).encode())
-p.check_returncode()
+    modlist = ldap.modlist.modifyModlist(ldap_members_group[0][1], ldap_members_group_new[0][1])
+    LDAP_con.modify_s("cn=mitglied,ou=groups,dc=betreiberverein,dc=de",
+            modlist)
 
-# TODO enforce sane usernames? Probably better located at self-registration
+    # report unmatched
+    # print("Unmatec LDAP Users:")
+    # EV_members_by_ldap_id = {m['LDAP_ID'].lower(): m for m in EV_members if m['LDAP_ID']}
+    # for p in LDAP_ppl:
+    #     if p[1]['entryUUID'][0].decode() not in EV_members_by_ldap_id:
+    #         print(p)
 
-# TODO use LDAP mail-groups for mailman sync
-# TODO add to keycloak self-service
+    # update/sync betreiberverein-mitglieder@ from active_member_list
+    active_member_mails = [
+        '"{}" <{}>'.format(m['contactDetails']['name'], m['contactDetails']['primaryEmail'].lower())
+        for m in EV_members if m['__ACTIVE_MEMBER__']]
+    p = subprocess.run(
+        '/usr/sbin/sync_members -f - betreiberverein-mitglieder'.split(),
+        input='\n'.join(active_member_mails).encode())
+    p.check_returncode()
 
-# subscribe members (since 27.11.2023) to newsletter@ and mitmachen@ mailman
-# TODO implement 2-way-sync for all members
-newsletter_subscriber = [
-    '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
-    for m in EV_members if m['__customFields__'].get('Newsletter') and m['__ACTIVE_MEMBER__']]
-p = subprocess.run(
-    '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-newsletter'.split(),
-    input='\n'.join(newsletter_subscriber).encode())
-mitmachen_subscriber = [
-    '"{}" <{}>'.format(m['contactDetails']['name'], m['emailOrUserName'].lower())
-    for m in EV_members if m['__customFields__'].get('Mitmachen-Verteiler') and m['__ACTIVE_MEMBER__']]
-p = subprocess.run(
-    '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-mitmachen'.split(),
-    input='\n'.join(mitmachen_subscriber).encode())
+    # TODO enforce sane usernames? Probably better located at self-registration
+
+    # TODO use LDAP mail-groups for mailman sync
+    # TODO add to keycloak self-service
+
+    # subscribe members (since 27.11.2023) to newsletter@ and mitmachen@ mailman
+    # TODO implement 2-way-sync for all members
+    newsletter_subscriber = [
+        '"{}" <{}>'.format(m['contactDetails']['name'], m['contactDetails']['primaryEmail'].lower())
+        for m in EV_members if m['__customFields__'].get('Newsletter') and m['__ACTIVE_MEMBER__']]
+    p = subprocess.run(
+        '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-newsletter'.split(),
+        input='\n'.join(newsletter_subscriber).encode())
+    mitmachen_subscriber = [
+        '"{}" <{}>'.format(m['contactDetails']['name'], m['contactDetails']['primaryEmail'].lower())
+        for m in EV_members if m['__customFields__'].get('Mitmachen-Verteiler') and m['__ACTIVE_MEMBER__']]
+    p = subprocess.run(
+        '/usr/sbin/add_members --welcome-msg=n -r - betreiberverein-mitmachen'.split(),
+        input='\n'.join(mitmachen_subscriber).encode())
+
+if __name__ == '__main__':
+    main()
