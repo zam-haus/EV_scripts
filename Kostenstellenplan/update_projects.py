@@ -65,13 +65,13 @@ for sphaeren, kstnr, titel, *_ in kostenstellentabelle:
 projects_by_pcc = {d['projectCostCentre']: d for d in projects}
 
 # GET ALL PROJECTS FROM eV
-projects_eV = ev_client.c.fetch_paginated("https://hexa.easyverein.com/api/v1.7/booking-project")
+projects_eV = ev_client.c.fetch_paginated("https://hexa.easyverein.com/api/v1.7/booking-project").result
 projects_eV_by_pcc = {d['projectCostCentre']: d for d in projects_eV}
 
 # GET USAGE OF PROJECTS
 project_usage_by_pcc = {}
 for b in ev_client.c.fetch_paginated(
-        "https://hexa.easyverein.com/api/v1.7/booking?query={bookingProject{projectCostCentre}}"):
+        "https://hexa.easyverein.com/api/v1.7/booking?query={bookingProject{projectCostCentre}}").result:
     if b['bookingProject'] is not None:
         pcc = b['bookingProject']['projectCostCentre']
         project_usage_by_pcc[pcc] = project_usage_by_pcc.get(pcc, 0) + 1
